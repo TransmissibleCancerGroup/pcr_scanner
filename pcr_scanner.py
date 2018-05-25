@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from __future__ import print_function
 import contextlib
 import logging
@@ -102,8 +103,8 @@ if __name__ == '__main__':
             logging.error('Reads file not found: {}'.format(reads_filename))
             sys.exit()
 
-    print('READ\tPRIMERPOS\tFIVEPRIME\tPRIMER1\t'
-          'SEQUENCE\tPRIMER2\tTHREEPRIME\tORIENTATION')
+    print('READ\tCHROM\tPOS\tPRIMERID\tPREEXTENSION\tEXTENSION\t'
+          'SEQUENCE\tLIGATION\tPOSTLIGATION\tUMI\tPRIMER.ORIENTATION\tREAD.ORIENTATION')
     try:
         with smart_filereader(reads_filename) as readsfile:
             lines_processed = 0
@@ -111,28 +112,39 @@ if __name__ == '__main__':
                 lines_processed += 1
                 fields = line.rstrip().split('\t')
                 name = fields[0]
+                flag = int(fields[1])
+                chrom = fields[2]
+                pos = fields[3]
+                read_is_reverse = flag & 16 == 16
                 seq = fields[9]
                 search = multirgx.search(seq)
                 if search:
                     rgx_pos = match_position(search.groups())
                     primer_pos = (rgx_pos // 3)  # Each regex has 3 capture groups -> original primer list is 3 times shorter
-                    is_reverse = primer_pos >= len(primers)
+                    primer_is_reverse = primer_pos >= len(primers)
                     primer_pos = primer_pos % len(primers)  # Shift reverse-match position back to forward primer sequence
-                    primer1 = primers[primer_pos][1]
-                    primer2 = primers[primer_pos][0]
-                    if is_reverse:
-                        three_prime, captured, five_prime = [revcomp(match) for match in search.groups()[rgx_pos:rgx_pos+3]]
+                    extension = primers[primer_pos][0]
+                    ligation = primers[primer_pos][1]
+                    pre_extension, captured, post_ligation = search.groups()[rgx_pos:rgx_pos+3]
+
+                    if primer_is_reverse:
+                        umi = post_ligation[:5]
+
                     else:
-                        five_prime, captured, three_prime = search.groups()[rgx_pos:rgx_pos+3]
+                        umi = pre_extension[-5:]
 
                     # Print the read name, index of matching primer (0-based), the matched sequences, and their orientation.
                     # Orientation note: output is displayed in same orientation as primer sequence,
                     # but if orientation is marked '-' the read sequence in the BAM is from the opposite strand
                     print(
-                        '{read}\t{primerpos}\t{fiveprime}\t{primer1}\t{sequence}\t{primer2}\t{threeprime}\t{orientation}'
-                        .format(read=name, primerpos=primer_pos, fiveprime=five_prime, primer1=primer1,
-                                sequence=captured, primer2=primer2, threeprime=three_prime,
-                                orientation=('-' if is_reverse else '+')))
+                        ('{read}\t{chrom}\t{pos}\t{primerid}\t{preextension}\t{extension}\t'
+                         '{sequence}\t{ligation}\t{postligation}\t{umi}\t'
+                         '{primerorientation}\t{readorientation}')
+                        .format(read=name, chrom=chrom, pos=pos, primerid=primer_pos,
+                                preextension=pre_extension, extension=extension,
+                                sequence=captured, ligation=ligation, umi=umi, postligation=post_ligation,
+                                primerorientation=('-' if primer_is_reverse else '+'),
+                                readorientation=('-' if read_is_reverse else '+')))
                 if lines_processed % 100 == 0:
                     logging.debug('Processed {} lines'.format(lines_processed))
     except (BrokenPipeError, KeyboardInterrupt) as err:
