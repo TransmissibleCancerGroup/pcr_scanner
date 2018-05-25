@@ -32,12 +32,17 @@ def parse_args():
     the_description = '''\
     Scan SAM reads (either in a file passed via -r switch, or piped from
     e.g. samtools view) for sequences matching PCR primer pairs (from a
-    file)'''
+    file). Primer matching is done with a fuzzy search. The maximum number
+    of mismatches is set via -d / --max-dist'''
     parser = argparse.ArgumentParser(textwrap.dedent(the_description))
     parser.add_argument('primers', help='File containing primer sequences')
     parser.add_argument('-r', '--reads',
                         help='File containing reads (optional - can be piped)',
                         default='')
+    parser.add_argument('-d', '--max-dist',
+                        help=('Maximum number of mismatches allowed in fuzzy '
+                              'matching (default: %(default)s)'),
+                        type=int, default=2)
     return parser.parse_args()
 
 
@@ -69,14 +74,14 @@ def read_primers(filename):
     return primers, [(revcomp(p1), revcomp(p2)) for (p1, p2) in primers]
 
 
-def fuzzy_search(string, primer_pairs):
+def fuzzy_search(string, primer_pairs, max_dist):
     """
     Search `string` for both primer sequences
     """
     for (i, primer_pair) in enumerate(primer_pairs):
-        search1 = fuzzysearch.find_near_matches(primer_pair[0], string, max_l_dist=2)
+        search1 = fuzzysearch.find_near_matches(primer_pair[0], string, max_l_dist=max_dist)
         if search1:
-            search2 = fuzzysearch.find_near_matches(primer_pair[1], string, max_l_dist=2)
+            search2 = fuzzysearch.find_near_matches(primer_pair[1], string, max_l_dist=max_dist)
             if search2:
                 return i, search1[0], search2[0]
 
@@ -117,11 +122,11 @@ if __name__ == '__main__':
                 pos = fields[3]
                 read_is_reverse = flag & 16 == 16
                 seq = fields[9]
-                search = fuzzy_search(seq, primers)
+                search = fuzzy_search(seq, primers, args.max_dist)
                 if search:
                     primer_is_reverse = False
                 else:
-                    search = fuzzy_search(seq, rev_primers)
+                    search = fuzzy_search(seq, rev_primers, args.max_dist)
                     if search:
                         primer_is_reverse = True
                 if search:
